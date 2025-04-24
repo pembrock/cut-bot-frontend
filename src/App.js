@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import WaveSurfer from 'wavesurfer.js';
 import RegionsPlugin from 'wavesurfer.js/plugins/regions';
+import './App.css';
 
 function App() {
     const [startTime, setStartTime] = useState(0);
     const [endTime, setEndTime] = useState(2);
     const [error, setError] = useState(null);
-    const [successMessage, setSuccessMessage] = useState(null); // Для уведомления
+    const [successMessage, setSuccessMessage] = useState(null);
     const waveSurferRef = useRef(null);
     const waveformRef = useRef(null);
     const [audioUrl, setAudioUrl] = useState('');
@@ -25,7 +26,6 @@ function App() {
                 if (window.Telegram?.WebApp) {
                     window.Telegram.WebApp.ready();
                     window.Telegram.WebApp.expand();
-                    // Показать кнопку "Назад"
                     window.Telegram.WebApp.BackButton.show();
                     window.Telegram.WebApp.BackButton.onClick(() => {
                         window.Telegram.WebApp.close();
@@ -158,15 +158,13 @@ function App() {
         };
     }, []);
 
-    const handleCut = () => {
-        // Format times to MM:SS
+    const handleCut = async () => {
         const formatTime = (seconds) => {
             const minutes = Math.floor(seconds / 60);
             const secs = Math.floor(seconds % 60);
             return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         };
 
-        // Prepare data
         const data = {
             startTime: formatTime(startTime),
             endTime: formatTime(endTime),
@@ -174,15 +172,62 @@ function App() {
 
         console.log('Sending data:', data);
         console.log('Telegram.WebApp available:', !!window.Telegram?.WebApp);
-        // Send data to Telegram
+        console.log('Telegram.WebApp version:', window.Telegram?.WebApp?.version);
+        console.log('Is running in Telegram:', window.Telegram?.WebApp?.platform);
+        console.log('User ID:', window.Telegram?.WebApp?.initDataUnsafe?.user?.id);
+
         if (window.Telegram?.WebApp) {
-            window.Telegram.WebApp.sendData(JSON.stringify(data));
-            console.log('Data sent to Telegram');
-            setSuccessMessage('Audio segment sent! Check the chat for your cut audio.');
-            // Не закрываем автоматически, чтобы пользователь увидел сообщение
+            try {
+                window.Telegram.WebApp.sendData(JSON.stringify(data));
+                console.log('Data sent to Telegram');
+                setSuccessMessage('Audio segment sent! Check the chat for your cut audio.');
+
+                // Отправка логов на сервер для Vercel
+                await fetch('/api/log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        event: 'sendData',
+                        data,
+                        telegramVersion: window.Telegram?.WebApp?.version,
+                        platform: window.Telegram?.WebApp?.platform,
+                        userId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id,
+                        timestamp: new Date().toISOString(),
+                    }),
+                });
+            } catch (error) {
+                console.error('Error sending data:', error);
+                setError('Failed to send data: ' + error.message);
+
+                // Логируем ошибку на сервер
+                await fetch('/api/log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        event: 'sendData_error',
+                        error: error.message,
+                        data,
+                        telegramVersion: window.Telegram?.WebApp?.version,
+                        platform: window.Telegram?.WebApp?.platform,
+                        userId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id,
+                        timestamp: new Date().toISOString(),
+                    }),
+                });
+            }
         } else {
             console.log('Telegram WebApp not available', data);
             setError('Failed to send data. Please open this app through Telegram.');
+
+            // Логируем отсутствие WebApp
+            await fetch('/api/log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    event: 'webapp_not_available',
+                    data,
+                    timestamp: new Date().toISOString(),
+                }),
+            });
         }
     };
 
