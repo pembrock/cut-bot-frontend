@@ -6,6 +6,7 @@ function App() {
     const [startTime, setStartTime] = useState(0);
     const [endTime, setEndTime] = useState(2);
     const [error, setError] = useState(null);
+    const [successMessage, setSuccessMessage] = useState(null); // Для уведомления
     const waveSurferRef = useRef(null);
     const waveformRef = useRef(null);
     const [audioUrl, setAudioUrl] = useState('');
@@ -24,6 +25,11 @@ function App() {
                 if (window.Telegram?.WebApp) {
                     window.Telegram.WebApp.ready();
                     window.Telegram.WebApp.expand();
+                    // Показать кнопку "Назад"
+                    window.Telegram.WebApp.BackButton.show();
+                    window.Telegram.WebApp.BackButton.onClick(() => {
+                        window.Telegram.WebApp.close();
+                    });
                 }
 
                 // Get audio URL from query params or use local file
@@ -63,7 +69,6 @@ function App() {
 
                 // Add regions after audio is decoded
                 waveSurferRef.current.on('decode', () => {
-                    // Selection region (highlighted area)
                     regions.addRegion({
                         id: 'selection',
                         start: 0,
@@ -75,17 +80,17 @@ function App() {
                     });
                 });
 
-                let activeRegion = null
+                let activeRegion = null;
                 regions.on('region-in', (region) => {
-                    console.log('region-in', region)
-                    activeRegion = region
-                })
+                    console.log('region-in', region);
+                    activeRegion = region;
+                });
                 regions.on('region-out', (region) => {
-                    console.log('region-out', region)
+                    console.log('region-out', region);
                     if (activeRegion === region) {
-                            activeRegion = null
+                        activeRegion = null;
                     }
-                })
+                });
 
                 // Update start/end times
                 regions.on('region-updated', (region) => {
@@ -126,10 +131,10 @@ function App() {
                 });
 
                 regions.on('region-clicked', (region, e) => {
-                    e.stopPropagation() // prevent triggering a click on the waveform
-                    activeRegion = region
-                    region.play(true)
-                })
+                    e.stopPropagation();
+                    activeRegion = region;
+                    region.play(true);
+                });
 
             } catch (err) {
                 if (isMounted) {
@@ -167,11 +172,17 @@ function App() {
             endTime: formatTime(endTime),
         };
 
+        console.log('Sending data:', data);
+        console.log('Telegram.WebApp available:', !!window.Telegram?.WebApp);
         // Send data to Telegram
         if (window.Telegram?.WebApp) {
             window.Telegram.WebApp.sendData(JSON.stringify(data));
+            console.log('Data sent to Telegram');
+            setSuccessMessage('Audio segment sent! Check the chat for your cut audio.');
+            // Не закрываем автоматически, чтобы пользователь увидел сообщение
         } else {
             console.log('Telegram WebApp not available', data);
+            setError('Failed to send data. Please open this app through Telegram.');
         }
     };
 
@@ -192,9 +203,12 @@ function App() {
                 <p>Start: {startTime.toFixed(2)}s</p>
                 <p>End: {endTime.toFixed(2)}s</p>
             </div>
+            {successMessage && (
+                <p className="text-green-500 mb-4">{successMessage}</p>
+            )}
             <button
                 onClick={handleCut}
-                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 w-full"
             >
                 Cut Audio
             </button>
