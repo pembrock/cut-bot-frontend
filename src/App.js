@@ -8,6 +8,7 @@ function App() {
     const [endTime, setEndTime] = useState(2);
     const [error, setError] = useState(null);
     const [successMessage, setSuccessMessage] = useState(null);
+    const [initData, setInitData] = useState(null);
     const waveSurferRef = useRef(null);
     const waveformRef = useRef(null);
     const [audioUrl, setAudioUrl] = useState('');
@@ -22,7 +23,6 @@ function App() {
 
         const initializeWaveSurfer = async () => {
             try {
-                // Initialize Telegram Web App
                 if (window.Telegram?.WebApp) {
                     window.Telegram.WebApp.ready();
                     window.Telegram.WebApp.expand();
@@ -30,18 +30,33 @@ function App() {
                     window.Telegram.WebApp.BackButton.onClick(() => {
                         window.Telegram.WebApp.close();
                     });
+
+                    const initDataRaw = window.Telegram.WebApp.initData;
+                    const initDataUnsafe = window.Telegram.WebApp.initDataUnsafe;
+
+                    setInitData({
+                        raw: initDataRaw,
+                        unsafe: initDataUnsafe,
+                        version: window.Telegram.WebApp.version,
+                        platform: window.Telegram.WebApp.platform,
+                    });
+
+                    console.log("Telegram WebApp initData:", initDataRaw);
+                    console.log("Telegram WebApp initDataUnsafe:", initDataUnsafe);
+                    console.log("Telegram WebApp version:", window.Telegram.WebApp.version);
+                    console.log("Telegram WebApp platform:", window.Telegram.WebApp.platform);
+                } else {
+                    setError("Telegram WebApp API не доступен. Пожалуйста, откройте приложение через Telegram.");
+                    return;
                 }
 
-                // Get audio URL from query params or use local file
                 const urlParams = new URLSearchParams(window.location.search);
                 const audio = urlParams.get('audio');
                 const url = audio || '/audio/Audio-Bus256.wav';
                 setAudioUrl(url);
 
-                // Initialize Regions plugin
                 const regions = RegionsPlugin.create();
 
-                // Initialize WaveSurfer
                 waveSurferRef.current = WaveSurfer.create({
                     container: waveformRef.current,
                     waveColor: '#4B5563',
@@ -51,7 +66,6 @@ function App() {
                     plugins: [regions],
                 });
 
-                // Handle load errors
                 waveSurferRef.current.on('error', (err) => {
                     if (isMounted) {
                         console.error('WaveSurfer error:', err);
@@ -59,83 +73,51 @@ function App() {
                     }
                 });
 
-                // Wait for audio to be ready
                 await new Promise((resolve) => setTimeout(resolve, 100));
 
-                // Load audio
                 if (isMounted) {
                     waveSurferRef.current.load(url);
                 }
 
-                // Add regions after audio is decoded
                 waveSurferRef.current.on('decode', () => {
                     regions.addRegion({
                         id: 'selection',
                         start: 0,
                         end: 2,
-                        content: 'Cramped region',
+                        content: 'Audio selection',
                         minLength: 1,
                         maxLength: 10,
                         color: 'rgba(59, 130, 246, 0.3)',
                     });
                 });
 
-                let activeRegion = null;
-                regions.on('region-in', (region) => {
-                    console.log('region-in', region);
-                    activeRegion = region;
-                });
-                regions.on('region-out', (region) => {
-                    console.log('region-out', region);
-                    if (activeRegion === region) {
-                        activeRegion = null;
-                    }
-                });
-
-                // Update start/end times
                 regions.on('region-updated', (region) => {
-                    if (!isMounted) return;
+                    if (!isMounted || region.id !== 'selection') return;
 
-                    try {
-                        if (region.id === 'selection') {
-                            let newStart = region.start;
-                            let newEnd = region.end;
+                    let newStart = region.start;
+                    let newEnd = region.end;
 
-                            // Ensure start < end
-                            if (newStart >= newEnd) {
-                                newEnd = newStart + 0.1;
-                                region.end = newEnd;
-                            }
-
-                            // Restrict to audio duration
-                            const audioDuration = waveSurferRef.current.getDuration() || 100;
-                            if (newStart < 0) {
-                                newStart = 0;
-                                newEnd = newStart + (region.end - region.start);
-                                region.start = newStart;
-                                region.end = newEnd;
-                            } else if (newEnd > audioDuration) {
-                                newEnd = audioDuration;
-                                newStart = newEnd - (region.end - region.start);
-                                region.start = newStart;
-                                region.end = newEnd;
-                            }
-
-                            setStartTime(newStart);
-                            setEndTime(newEnd);
-                        }
-                    } catch (err) {
-                        console.error('Error updating region:', err);
-                        setError('Error updating region. Please try again.');
+                    if (newStart >= newEnd) {
+                        newEnd = newStart + 0.1;
+                        region.end = newEnd;
                     }
+
+                    const audioDuration = waveSurferRef.current.getDuration() || 100;
+                    if (newEnd > audioDuration) {
+                        newEnd = audioDuration;
+                        newStart = Math.max(0, newEnd - (region.end - region.start));
+                        region.start = newStart;
+                        region.end = newEnd;
+                    }
+
+                    setStartTime(newStart);
+                    setEndTime(newEnd);
                 });
 
                 regions.on('region-clicked', (region, e) => {
                     e.stopPropagation();
-                    activeRegion = region;
                     region.play(true);
                 });
-
             } catch (err) {
                 if (isMounted) {
                     console.error('Error initializing WaveSurfer:', err);
@@ -170,64 +152,19 @@ function App() {
             endTime: formatTime(endTime),
         };
 
-        console.log('Sending data:', data);
-        console.log('Telegram.WebApp available:', !!window.Telegram?.WebApp);
-        console.log('Telegram.WebApp version:', window.Telegram?.WebApp?.version);
-        console.log('Is running in Telegram:', window.Telegram?.WebApp?.platform);
-        console.log('User ID:', window.Telegram?.WebApp?.initDataUnsafe?.user?.id);
-
         if (window.Telegram?.WebApp) {
             try {
                 window.Telegram.WebApp.sendData(JSON.stringify(data));
-                console.log('Data sent to Telegram');
+                alert('✅ Данные отправлены в Telegram!');
                 setSuccessMessage('Audio segment sent! Check the chat for your cut audio.');
-
-                // Отправка логов на сервер для Vercel
-                await fetch('/api/log', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        event: 'sendData',
-                        data,
-                        telegramVersion: window.Telegram?.WebApp?.version,
-                        platform: window.Telegram?.WebApp?.platform,
-                        userId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id,
-                        timestamp: new Date().toISOString(),
-                    }),
-                });
             } catch (error) {
                 console.error('Error sending data:', error);
+                alert('❌ Ошибка отправки: ' + error.message);
                 setError('Failed to send data: ' + error.message);
-
-                // Логируем ошибку на сервер
-                await fetch('/api/log', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        event: 'sendData_error',
-                        error: error.message,
-                        data,
-                        telegramVersion: window.Telegram?.WebApp?.version,
-                        platform: window.Telegram?.WebApp?.platform,
-                        userId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id,
-                        timestamp: new Date().toISOString(),
-                    }),
-                });
             }
         } else {
-            console.log('Telegram WebApp not available', data);
-            setError('Failed to send data. Please open this app through Telegram.');
-
-            // Логируем отсутствие WebApp
-            await fetch('/api/log', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    event: 'webapp_not_available',
-                    data,
-                    timestamp: new Date().toISOString(),
-                }),
-            });
+            alert('❌ Telegram WebApp не обнаружен!');
+            setError('Telegram WebApp API не доступен. Пожалуйста, откройте приложение через Telegram.');
         }
     };
 
@@ -248,15 +185,21 @@ function App() {
                 <p>Start: {startTime.toFixed(2)}s</p>
                 <p>End: {endTime.toFixed(2)}s</p>
             </div>
-            {successMessage && (
-                <p className="text-green-500 mb-4">{successMessage}</p>
-            )}
+            {successMessage && <p className="text-green-500 mb-4">{successMessage}</p>}
             <button
                 onClick={handleCut}
                 className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 w-full"
             >
                 Cut Audio
             </button>
+            {initData && (
+                <div className="text-sm bg-white p-2 mt-4 rounded shadow">
+                    <p><strong>Platform:</strong> {initData.platform}</p>
+                    <p><strong>Version:</strong> {initData.version}</p>
+                    <p><strong>User ID:</strong> {initData.unsafe?.user?.id || 'null'}</p>
+                    <p><strong>Query ID:</strong> {initData.unsafe?.query_id || 'null'}</p>
+                </div>
+            )}
         </div>
     );
 }
