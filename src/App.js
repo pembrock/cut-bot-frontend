@@ -154,24 +154,29 @@ function App() {
 
     const handleCut = async () => {
         const data = {
-            startTime: formatTime(startTime),
-            endTime: formatTime(endTime),
+            user_id: initDataUnsafe?.user?.id,
+            start_time: formatTime(startTime),
+            end_time: formatTime(endTime),
         };
 
-        console.log('📤 Отправляем данные:', data);
-        console.log('📏 Размер данных:', JSON.stringify(data).length);
+        console.log("📤 Sending to backend:", data);
 
-        if (window.Telegram?.WebApp) {
-            try {
-                window.Telegram.WebApp.sendData(JSON.stringify(data));
-                alert('✅ Данные успешно отправлены в бота!');
-                setTimeout(() => window.Telegram.WebApp.close(), 500);
-            } catch (error) {
-                console.error('❌ Ошибка отправки:', error);
-                alert('❌ Не удалось отправить данные: ' + error.message);
+        try {
+            const response = await fetch("https://b2be-142-93-44-239.ngrok-free.app/save-segment", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(data),
+            });
+
+            if (response.ok) {
+                alert("✅ Segment saved!");
+                window.Telegram.WebApp.close();
+            } else {
+                alert("❌ Failed to send data.");
             }
-        } else {
-            alert('⚠️ Telegram WebApp не обнаружен!');
+        } catch (err) {
+            console.error(err);
+            alert("⚠️ Network error");
         }
     };
 
