@@ -50,19 +50,6 @@ function App() {
                 setAudioUrl(audioUrlValue);
                 console.log("🔊 Audio URL:", audioUrlValue);
 
-                // Проверяем доступность URL
-                try {
-                    const response = await fetch(audioUrlValue, { method: 'HEAD' });
-                    console.log("🔍 Audio URL check:", response.status, response.statusText);
-                    if (!response.ok) {
-                        throw new Error(`Audio URL not accessible: ${response.status} ${response.statusText}`);
-                    }
-                } catch (err) {
-                    console.error("⚠️ Audio URL fetch error:", err);
-                    setError(`Ошибка проверки аудио URL: ${err.message}`);
-                    return;
-                }
-
                 // Создаём Regions плагин
                 const regions = RegionsPlugin.create({
                     drag: true,
@@ -84,7 +71,7 @@ function App() {
                 waveSurferRef.current.on('error', (err) => {
                     if (isMounted) {
                         console.error('🚨 WaveSurfer error:', err);
-                        setError(`Ошибка загрузки аудио: ${err.message}`);
+                        setError(`Ошибка загрузки аудио: ${err.message || err}`);
                     }
                 });
 
@@ -96,13 +83,17 @@ function App() {
                     console.log('✅ WaveSurfer ready');
                 });
 
+                waveSurferRef.current.on('decode', () => {
+                    console.log('🔊 Audio decoded');
+                });
+
                 // Загружаем аудио
                 console.log('⏳ Starting WaveSurfer load...');
                 waveSurferRef.current.load(audioUrlValue);
 
                 // Добавляем регион
                 waveSurferRef.current.on('decode', () => {
-                    console.log('🔊 Audio decoded');
+                    console.log('🔊 Region added');
                     regions.addRegion({
                         id: 'selection',
                         start: startTime,
