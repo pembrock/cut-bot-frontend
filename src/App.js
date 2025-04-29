@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js'; // Или путь под твою структуру
+import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js';
 import './App.css';
 
 function App() {
     const [startTime, setStartTime] = useState(0);
     const [endTime, setEndTime] = useState(2);
     const [error, setError] = useState(null);
+    const [successMessage, setSuccessMessage] = useState(null);
     const [initDataUnsafe, setInitDataUnsafe] = useState(null);
     const waveSurferRef = useRef(null);
     const waveformRef = useRef(null);
@@ -22,7 +23,7 @@ function App() {
 
         const initializeWaveSurfer = async () => {
             try {
-                // Проверяем доступность Telegram WebApp API
+                // Проверяем Telegram WebApp
                 if (window.Telegram?.WebApp) {
                     window.Telegram.WebApp.ready();
                     window.Telegram.WebApp.expand();
@@ -33,7 +34,6 @@ function App() {
 
                     const initDataRaw = window.Telegram.WebApp.initData;
                     const initData = window.Telegram.WebApp.initDataUnsafe;
-
                     setInitDataUnsafe(initData);
 
                     console.log("Telegram WebApp initData:", initDataRaw);
@@ -43,7 +43,7 @@ function App() {
                     return;
                 }
 
-                // Получаем URL аудиофайла из параметров URL
+                // Получаем URL аудиофайла
                 const urlParams = new URLSearchParams(window.location.search);
                 const audioParam = urlParams.get('audio');
                 const audioUrlValue = audioParam || '/audio/Audio-Bus256.wav';
@@ -77,7 +77,7 @@ function App() {
                 // Загружаем аудио
                 waveSurferRef.current.load(audioUrlValue);
 
-                // После декодирования добавляем регион по умолчанию
+                // Добавляем регион
                 waveSurferRef.current.on('decode', () => {
                     regions.addRegion({
                         id: 'selection',
@@ -88,7 +88,7 @@ function App() {
                     });
                 });
 
-                // Обновляем временные метки при изменении региона
+                // Обновляем временные метки
                 regions.on('region-updated', (region) => {
                     if (!isMounted || region.id !== 'selection') return;
 
@@ -129,13 +129,9 @@ function App() {
 
         return () => {
             isMounted = false;
-
             if (waveSurferRef.current) {
                 const ws = waveSurferRef.current;
-
-                // Обнуляем ссылку ДО уничтожения, чтобы избежать двойного destroy()
                 waveSurferRef.current = null;
-
                 try {
                     ws.destroy();
                     console.log("WaveSurfer успешно уничтожен");
@@ -154,29 +150,63 @@ function App() {
 
     const handleCut = async () => {
         const data = {
-            user_id: initDataUnsafe?.user?.id,
+            user_id: initDataUnsafe?.user?.id || 142413225,
             start_time: formatTime(startTime),
             end_time: formatTime(endTime),
         };
 
         console.log("📤 Sending to backend:", data);
+        const backendUrl = "https://e2b0-142-93-44-239.ngrok-free.app/save-segment";
 
         try {
-            const response = await fetch("https://b2be-142-93-44-239.ngrok-free.app/save-segment", {
+            const response = await fetch(backendUrl, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(data),
             });
 
+            const result = await response.json();
             if (response.ok) {
-                alert("✅ Segment saved!");
+                setSuccessMessage("✅ Segment saved and processed!");
                 window.Telegram.WebApp.close();
             } else {
-                alert("❌ Failed to send data.");
+                throw new Error(result.detail || "Failed to send data");
             }
+
+            // Логи на Vercel
+            await fetch('/api/log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    event: 'sendData_backend',
+                    data,
+                    userId: data.user_id,
+                    backendUrl,
+                    response: result,
+                    telegramVersion: window.Telegram?.WebApp?.version,
+                    platform: window.Telegram?.WebApp?.platform,
+                    timestamp: new Date().toISOString(),
+                }),
+            });
         } catch (err) {
-            console.error(err);
-            alert("⚠️ Network error");
+            console.error("⚠️ Error sending to backend:", err);
+            setError("❌ Failed to send data: " + err.message);
+
+            // Логируем ошибку на Vercel
+            await fetch('/api/log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    event: 'sendData_backend_error',
+                    error: err.message,
+                    data,
+                    userId: data.user_id,
+                    backendUrl,
+                    telegramVersion: window.Telegram?.WebApp?.version,
+                    platform: window.Telegram?.WebApp?.platform,
+                    timestamp: new Date().toISOString(),
+                }),
+            });
         }
     };
 
@@ -192,21 +222,20 @@ function App() {
     return (
         <div className="p-4 bg-gray-100 min-h-screen">
             <h1 className="text-2xl font-bold mb-4">Audio Cutter</h1>
-
             <div ref={waveformRef} className="mb-4 border border-gray-300 rounded p-2 bg-white"></div>
-
             <div className="mb-4 text-center">
                 <p>Начало: <strong>{formatTime(startTime)}</strong></p>
                 <p>Конец: <strong>{formatTime(endTime)}</strong></p>
             </div>
-
+            {successMessage && (
+                <p className="text-green-500 mb-4">{successMessage}</p>
+            )}
             <button
                 onClick={handleCut}
                 className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 w-full"
             >
                 Cut Audio
             </button>
-
             {initDataUnsafe && (
                 <div className="mt-4 text-sm bg-white p-2 rounded shadow">
                     <p><strong>User ID:</strong> {initDataUnsafe.user?.id || 'не указан'}</p>
