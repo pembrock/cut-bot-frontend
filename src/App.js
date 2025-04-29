@@ -1,21 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import RegionsPlugin from 'wavesurfer.js/plugins/regions';
+import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js'; // Или путь под твою структуру
 import './App.css';
 
 function App() {
     const [startTime, setStartTime] = useState(0);
     const [endTime, setEndTime] = useState(2);
     const [error, setError] = useState(null);
-    const [successMessage, setSuccessMessage] = useState(null);
-    const [initData, setInitData] = useState(null);
+    const [initDataUnsafe, setInitDataUnsafe] = useState(null);
     const waveSurferRef = useRef(null);
     const waveformRef = useRef(null);
     const [audioUrl, setAudioUrl] = useState('');
 
     useEffect(() => {
         if (!waveformRef.current) {
-            setError('Waveform container not found.');
+            setError('Не найден контейнер для волновой формы.');
             return;
         }
 
@@ -23,6 +22,7 @@ function App() {
 
         const initializeWaveSurfer = async () => {
             try {
+                // Проверяем доступность Telegram WebApp API
                 if (window.Telegram?.WebApp) {
                     window.Telegram.WebApp.ready();
                     window.Telegram.WebApp.expand();
@@ -32,31 +32,32 @@ function App() {
                     });
 
                     const initDataRaw = window.Telegram.WebApp.initData;
-                    const initDataUnsafe = window.Telegram.WebApp.initDataUnsafe;
+                    const initData = window.Telegram.WebApp.initDataUnsafe;
 
-                    setInitData({
-                        raw: initDataRaw,
-                        unsafe: initDataUnsafe,
-                        version: window.Telegram.WebApp.version,
-                        platform: window.Telegram.WebApp.platform,
-                    });
+                    setInitDataUnsafe(initData);
 
                     console.log("Telegram WebApp initData:", initDataRaw);
-                    console.log("Telegram WebApp initDataUnsafe:", initDataUnsafe);
-                    console.log("Telegram WebApp version:", window.Telegram.WebApp.version);
-                    console.log("Telegram WebApp platform:", window.Telegram.WebApp.platform);
+                    console.log("Telegram WebApp initDataUnsafe:", initData);
                 } else {
-                    setError("Telegram WebApp API не доступен. Пожалуйста, откройте приложение через Telegram.");
+                    setError("Telegram WebApp API недоступен. Откройте приложение через Telegram.");
                     return;
                 }
 
+                // Получаем URL аудиофайла из параметров URL
                 const urlParams = new URLSearchParams(window.location.search);
-                const audio = urlParams.get('audio');
-                const url = audio || '/audio/Audio-Bus256.wav';
-                setAudioUrl(url);
+                const audioParam = urlParams.get('audio');
+                const audioUrlValue = audioParam || '/audio/Audio-Bus256.wav';
+                setAudioUrl(audioUrlValue);
 
-                const regions = RegionsPlugin.create();
+                // Создаём Regions плагин
+                const regions = RegionsPlugin.create({
+                    drag: true,
+                    resize: true,
+                    minLength: 1,
+                    maxLength: 30
+                });
 
+                // Инициализируем WaveSurfer
                 waveSurferRef.current = WaveSurfer.create({
                     container: waveformRef.current,
                     waveColor: '#4B5563',
@@ -68,29 +69,26 @@ function App() {
 
                 waveSurferRef.current.on('error', (err) => {
                     if (isMounted) {
-                        console.error('WaveSurfer error:', err);
-                        setError('Failed to load audio: ' + err.message);
+                        console.error('Ошибка WaveSurfer:', err);
+                        setError('Ошибка загрузки аудио: ' + err.message);
                     }
                 });
 
-                await new Promise((resolve) => setTimeout(resolve, 100));
+                // Загружаем аудио
+                waveSurferRef.current.load(audioUrlValue);
 
-                if (isMounted) {
-                    waveSurferRef.current.load(url);
-                }
-
+                // После декодирования добавляем регион по умолчанию
                 waveSurferRef.current.on('decode', () => {
                     regions.addRegion({
                         id: 'selection',
-                        start: 0,
-                        end: 2,
-                        content: 'Audio selection',
-                        minLength: 1,
-                        maxLength: 10,
+                        start: startTime,
+                        end: endTime,
+                        content: 'Выбранный фрагмент',
                         color: 'rgba(59, 130, 246, 0.3)',
                     });
                 });
 
+                // Обновляем временные метки при изменении региона
                 regions.on('region-updated', (region) => {
                     if (!isMounted || region.id !== 'selection') return;
 
@@ -118,10 +116,11 @@ function App() {
                     e.stopPropagation();
                     region.play(true);
                 });
+
             } catch (err) {
                 if (isMounted) {
-                    console.error('Error initializing WaveSurfer:', err);
-                    setError('Failed to initialize audio player: ' + err.message);
+                    console.error('Ошибка инициализации WaveSurfer:', err);
+                    setError('Ошибка инициализации проигрывателя: ' + err.message);
                 }
             }
         };
@@ -130,41 +129,49 @@ function App() {
 
         return () => {
             isMounted = false;
+
             if (waveSurferRef.current) {
+                const ws = waveSurferRef.current;
+
+                // Обнуляем ссылку ДО уничтожения, чтобы избежать двойного destroy()
+                waveSurferRef.current = null;
+
                 try {
-                    waveSurferRef.current.destroy();
+                    ws.destroy();
+                    console.log("WaveSurfer успешно уничтожен");
                 } catch (err) {
-                    console.error('Error destroying WaveSurfer:', err);
+                    console.error("Ошибка при уничтожении WaveSurfer:", err);
                 }
             }
         };
     }, []);
 
-    const handleCut = async () => {
-        const formatTime = (seconds) => {
-            const minutes = Math.floor(seconds / 60);
-            const secs = Math.floor(seconds % 60);
-            return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-        };
+    const formatTime = (seconds) => {
+        const minutes = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    };
 
+    const handleCut = async () => {
         const data = {
             startTime: formatTime(startTime),
             endTime: formatTime(endTime),
         };
 
+        console.log('📤 Отправляем данные:', data);
+        console.log('📏 Размер данных:', JSON.stringify(data).length);
+
         if (window.Telegram?.WebApp) {
             try {
                 window.Telegram.WebApp.sendData(JSON.stringify(data));
-                alert('✅ Данные отправлены в Telegram!');
-                setSuccessMessage('Audio segment sent! Check the chat for your cut audio.');
+                alert('✅ Данные успешно отправлены в бота!');
+                setTimeout(() => window.Telegram.WebApp.close(), 500);
             } catch (error) {
-                console.error('Error sending data:', error);
-                alert('❌ Ошибка отправки: ' + error.message);
-                setError('Failed to send data: ' + error.message);
+                console.error('❌ Ошибка отправки:', error);
+                alert('❌ Не удалось отправить данные: ' + error.message);
             }
         } else {
-            alert('❌ Telegram WebApp не обнаружен!');
-            setError('Telegram WebApp API не доступен. Пожалуйста, откройте приложение через Telegram.');
+            alert('⚠️ Telegram WebApp не обнаружен!');
         }
     };
 
@@ -180,24 +187,26 @@ function App() {
     return (
         <div className="p-4 bg-gray-100 min-h-screen">
             <h1 className="text-2xl font-bold mb-4">Audio Cutter</h1>
-            <div ref={waveformRef} className="mb-4"></div>
-            <div className="mb-4">
-                <p>Start: {startTime.toFixed(2)}s</p>
-                <p>End: {endTime.toFixed(2)}s</p>
+
+            <div ref={waveformRef} className="mb-4 border border-gray-300 rounded p-2 bg-white"></div>
+
+            <div className="mb-4 text-center">
+                <p>Начало: <strong>{formatTime(startTime)}</strong></p>
+                <p>Конец: <strong>{formatTime(endTime)}</strong></p>
             </div>
-            {successMessage && <p className="text-green-500 mb-4">{successMessage}</p>}
+
             <button
                 onClick={handleCut}
                 className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 w-full"
             >
                 Cut Audio
             </button>
-            {initData && (
-                <div className="text-sm bg-white p-2 mt-4 rounded shadow">
-                    <p><strong>Platform:</strong> {initData.platform}</p>
-                    <p><strong>Version:</strong> {initData.version}</p>
-                    <p><strong>User ID:</strong> {initData.unsafe?.user?.id || 'null'}</p>
-                    <p><strong>Query ID:</strong> {initData.unsafe?.query_id || 'null'}</p>
+
+            {initDataUnsafe && (
+                <div className="mt-4 text-sm bg-white p-2 rounded shadow">
+                    <p><strong>User ID:</strong> {initDataUnsafe.user?.id || 'не указан'}</p>
+                    <p><strong>Query ID:</strong> {initDataUnsafe.query_id || 'не указан'}</p>
+                    <p><strong>Platform:</strong> {initDataUnsafe.platform}</p>
                 </div>
             )}
         </div>
