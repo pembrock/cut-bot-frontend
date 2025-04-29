@@ -48,6 +48,20 @@ function App() {
                 const audioParam = urlParams.get('audio');
                 const audioUrlValue = audioParam || '/audio/Audio-Bus256.wav';
                 setAudioUrl(audioUrlValue);
+                console.log("🔊 Audio URL:", audioUrlValue);
+
+                // Проверяем доступность URL
+                try {
+                    const response = await fetch(audioUrlValue, { method: 'HEAD' });
+                    console.log("🔍 Audio URL check:", response.status, response.statusText);
+                    if (!response.ok) {
+                        throw new Error(`Audio URL not accessible: ${response.status} ${response.statusText}`);
+                    }
+                } catch (err) {
+                    console.error("⚠️ Audio URL fetch error:", err);
+                    setError(`Ошибка проверки аудио URL: ${err.message}`);
+                    return;
+                }
 
                 // Создаём Regions плагин
                 const regions = RegionsPlugin.create({
@@ -69,16 +83,26 @@ function App() {
 
                 waveSurferRef.current.on('error', (err) => {
                     if (isMounted) {
-                        console.error('Ошибка WaveSurfer:', err);
-                        setError('Ошибка загрузки аудио: ' + err.message);
+                        console.error('🚨 WaveSurfer error:', err);
+                        setError(`Ошибка загрузки аудио: ${err.message}`);
                     }
                 });
 
+                waveSurferRef.current.on('load', (url) => {
+                    console.log('📡 WaveSurfer loading:', url);
+                });
+
+                waveSurferRef.current.on('ready', () => {
+                    console.log('✅ WaveSurfer ready');
+                });
+
                 // Загружаем аудио
+                console.log('⏳ Starting WaveSurfer load...');
                 waveSurferRef.current.load(audioUrlValue);
 
                 // Добавляем регион
                 waveSurferRef.current.on('decode', () => {
+                    console.log('🔊 Audio decoded');
                     regions.addRegion({
                         id: 'selection',
                         start: startTime,
@@ -119,8 +143,8 @@ function App() {
 
             } catch (err) {
                 if (isMounted) {
-                    console.error('Ошибка инициализации WaveSurfer:', err);
-                    setError('Ошибка инициализации проигрывателя: ' + err.message);
+                    console.error('🚨 Ошибка инициализации WaveSurfer:', err);
+                    setError(`Ошибка инициализации проигрывателя: ${err.message}`);
                 }
             }
         };
