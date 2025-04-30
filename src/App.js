@@ -36,8 +36,8 @@ function App() {
                     const initData = window.Telegram.WebApp.initDataUnsafe;
                     setInitDataUnsafe(initData);
 
-                    console.log("Telegram WebApp initData:", initDataRaw);
-                    console.log("Telegram WebApp initDataUnsafe:", initData);
+                    console.log("📱 Telegram WebApp initData:", initDataRaw);
+                    console.log("📱 Telegram WebApp initDataUnsafe:", initData);
                 } else {
                     setError("Telegram WebApp API недоступен. Откройте приложение через Telegram.");
                     return;
@@ -49,6 +49,35 @@ function App() {
                 const audioUrlValue = audioParam || '/audio/Audio-Bus256.wav';
                 setAudioUrl(audioUrlValue);
                 console.log("🔊 Audio URL:", audioUrlValue);
+
+                // Проверяем Telegram WebApp версию и платформу
+                console.log("🌐 Telegram WebApp version:", window.Telegram?.WebApp?.version);
+                console.log("💻 Platform:", window.Telegram?.WebApp?.platform);
+
+                // Тестовый запрос к бэкенду
+                console.log("🧪 Starting test fetch to backend...");
+                try {
+                    const testResponse = await fetch(audioUrlValue, {
+                        method: 'GET',
+                        headers: { 'Accept': 'audio/mpeg' }
+                    });
+                    console.log("🧪 Test fetch response:", {
+                        status: testResponse.status,
+                        statusText: testResponse.statusText,
+                        headers: Object.fromEntries(testResponse.headers.entries())
+                    });
+                    if (!testResponse.ok) {
+                        throw new Error(`Test fetch failed: ${testResponse.status} ${testResponse.statusText}`);
+                    }
+                    const contentType = testResponse.headers.get('content-type');
+                    if (!contentType.includes('audio/mpeg')) {
+                        throw new Error(`Invalid content-type: ${contentType}`);
+                    }
+                } catch (err) {
+                    console.error("⚠️ Test fetch error:", err);
+                    setError(`Ошибка тестового запроса: ${err.message}`);
+                    return;
+                }
 
                 // Создаём Regions плагин
                 const regions = RegionsPlugin.create({
@@ -71,7 +100,16 @@ function App() {
                 waveSurferRef.current.on('error', (err) => {
                     if (isMounted) {
                         console.error('🚨 WaveSurfer error:', err);
-                        setError(`Ошибка загрузки аудио: ${err.message || err}`);
+                        if (err instanceof MediaError) {
+                            console.error('🚨 MediaError details:', {
+                                code: err.code,
+                                message: err.message,
+                                name: err.name
+                            });
+                            setError(`Ошибка загрузки аудио: MediaError (code: ${err.code}, message: ${err.message})`);
+                        } else {
+                            setError(`Ошибка загрузки аудио: ${err.message || err}`);
+                        }
                     }
                 });
 
