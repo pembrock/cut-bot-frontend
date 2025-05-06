@@ -46,7 +46,7 @@ function App() {
                 // Получаем URL аудиофайла
                 const urlParams = new URLSearchParams(window.location.search);
                 const audioParam = urlParams.get('audio');
-                const audioUrlValue = audioParam || '/audio/Audio-Bus256.wav';
+                const audioUrlValue = audioParam || 'https://bot.pembrock.ru/audio/142413225';
                 setAudioUrl(audioUrlValue);
                 console.log("🔊 Audio URL:", audioUrlValue);
 
@@ -209,7 +209,7 @@ function App() {
         };
 
         console.log("📤 Sending to backend:", data);
-        const backendUrl = "https://e2b0-142-93-44-239.ngrok-free.app/save-segment";
+        const backendUrl = "https://bot.pembrock.ru/save-segment";
 
         try {
             const response = await fetch(backendUrl, {
