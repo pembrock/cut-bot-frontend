@@ -9,6 +9,7 @@ function App() {
     const [error, setError] = useState(null);
     const [successMessage, setSuccessMessage] = useState(null);
     const [initDataUnsafe, setInitDataUnsafe] = useState(null);
+    const [telegramInfo, setTelegramInfo] = useState({});
     const waveSurferRef = useRef(null);
     const waveformRef = useRef(null);
     const [audioUrl, setAudioUrl] = useState('');
@@ -36,8 +37,29 @@ function App() {
                     const initData = window.Telegram.WebApp.initDataUnsafe;
                     setInitDataUnsafe(initData);
 
-                    console.log("📱 Telegram WebApp initData:", initDataRaw);
-                    console.log("📱 Telegram WebApp initDataUnsafe:", initData);
+                    const tgInfo = {
+                        version: window.Telegram.WebApp.version,
+                        platform: window.Telegram.WebApp.platform,
+                        initDataRaw: initDataRaw || 'empty',
+                        initDataUnsafe: initData || {},
+                        isClosingConfirmationEnabled: window.Telegram.WebApp.isClosingConfirmationEnabled,
+                        isExpanded: window.Telegram.WebApp.isExpanded,
+                        themeParams: window.Telegram.WebApp.themeParams || {},
+                    };
+                    setTelegramInfo(tgInfo);
+
+                    console.log("📱 Telegram WebApp Info:", tgInfo);
+                    // Логируем на Vercel
+                    fetch('/api/log', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            event: 'telegram_webapp_info',
+                            data: tgInfo,
+                            userId: initData?.user?.id || 'unknown',
+                            timestamp: new Date().toISOString(),
+                        }),
+                    }).catch(err => console.error("⚠️ Vercel log error:", err));
                 } else {
                     setError("Telegram WebApp API недоступен. Откройте приложение через Telegram.");
                     return;
@@ -52,10 +74,6 @@ function App() {
                 }
                 setAudioUrl(audioUrlValue);
                 console.log("🔊 Audio URL:", audioUrlValue);
-
-                // Проверяем Telegram WebApp версию и платформу
-                console.log("🌐 Telegram WebApp version:", window.Telegram?.WebApp?.version);
-                console.log("💻 Platform:", window.Telegram?.WebApp?.platform);
 
                 // Тестовый запрос к бэкенду
                 console.log("🧪 Starting test fetch to backend...");
@@ -138,7 +156,7 @@ function App() {
                     regions.addRegion({
                         id: 'selection',
                         start: startTime,
-                        end: endTime,
+                        endTime: endTime,
                         content: 'Выбранный фрагмент',
                         color: 'rgba(59, 130, 246, 0.3)',
                     });
@@ -212,6 +230,11 @@ function App() {
 
         console.log("📤 Sending to Telegram:", data);
         try {
+            // Проверяем initData
+            if (!window.Telegram.WebApp.initData) {
+                throw new Error("initData is empty or invalid");
+            }
+
             window.Telegram.WebApp.sendData(JSON.stringify(data));
             setSuccessMessage("✅ Данные отправлены в Telegram!");
             setTimeout(() => {
@@ -228,6 +251,7 @@ function App() {
                     userId: initDataUnsafe?.user?.id || 'unknown',
                     telegramVersion: window.Telegram?.WebApp?.version,
                     platform: window.Telegram?.WebApp?.platform,
+                    telegramInfo,
                     timestamp: new Date().toISOString(),
                 }),
             }).catch(err => console.error("⚠️ Vercel log error:", err));
@@ -246,6 +270,63 @@ function App() {
                     userId: initDataUnsafe?.user?.id || 'unknown',
                     telegramVersion: window.Telegram?.WebApp?.version,
                     platform: window.Telegram?.WebApp?.platform,
+                    telegramInfo,
+                    timestamp: new Date().toISOString(),
+                }),
+            }).catch(err => console.error("⚠️ Vercel log error:", err));
+        }
+    };
+
+    const handleTest = async () => {
+        const testData = { test: "ping", userId: initDataUnsafe?.user?.id || 'unknown' };
+        console.log("📤 Sending test POST to /test:", testData);
+        try {
+            const response = await fetch('https://bot.pembrock.ru/test', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(testData),
+            });
+            const result = await response.json();
+            console.log("📡 Response from /test:", result);
+
+            setSuccessMessage("✅ Тестовый запрос отправлен!");
+            setTimeout(() => {
+                window.Telegram.WebApp.close();
+            }, 100);
+
+            // Логи на Vercel
+            fetch('/api/log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    event: 'test_post',
+                    data: testData,
+                    response: result,
+                    userId: initDataUnsafe?.user?.id || 'unknown',
+                    telegramVersion: window.Telegram?.WebApp?.version,
+                    platform: window.Telegram?.WebApp?.platform,
+                    telegramInfo,
+                    timestamp: new Date().toISOString(),
+                }),
+            }).catch(err => console.error("⚠️ Vercel log error:", err));
+        } catch (err) {
+            console.error("⚠️ Error sending test POST:", err);
+            setError("❌ Ошибка тестового запроса: " + err.message);
+
+            // Логируем ошибку на Vercel
+            fetch('/api/log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    event: 'test_post_error',
+                    error: err.message,
+                    data: testData,
+                    userId: initDataUnsafe?.user?.id || 'unknown',
+                    telegramVersion: window.Telegram?.WebApp?.version,
+                    platform: window.Telegram?.WebApp?.platform,
+                    telegramInfo,
                     timestamp: new Date().toISOString(),
                 }),
             }).catch(err => console.error("⚠️ Vercel log error:", err));
@@ -272,17 +353,26 @@ function App() {
             {successMessage && (
                 <p className="text-green-500 mb-4">{successMessage}</p>
             )}
-            <button
-                onClick={handleCut}
-                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 w-full"
-            >
-                Cut Audio
-            </button>
+            <div className="flex space-x-4">
+                <button
+                    onClick={handleCut}
+                    className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex-1"
+                >
+                    Cut Audio
+                </button>
+                <button
+                    onClick={handleTest}
+                    className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 flex-1"
+                >
+                    Test
+                </button>
+            </div>
             {initDataUnsafe && (
                 <div className="mt-4 text-sm bg-white p-2 rounded shadow">
                     <p><strong>User ID:</strong> {initDataUnsafe.user?.id || 'не указан'}</p>
                     <p><strong>Query ID:</strong> {initDataUnsafe.query_id || 'не указан'}</p>
-                    <p><strong>Platform:</strong> {initDataUnsafe.platform}</p>
+                    <p><strong>Platform:</strong> {telegramInfo.platform || 'не указан'}</p>
+                    <p><strong>Version:</strong> {telegramInfo.version || 'не указан'}</p>
                 </div>
             )}
         </div>
