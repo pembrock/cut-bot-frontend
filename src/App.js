@@ -75,6 +75,10 @@ function App() {
                 setAudioUrl(audioUrlValue);
                 console.log("🔊 Audio URL:", audioUrlValue);
 
+                // Проверяем Telegram WebApp версию и платформу
+                console.log("🌐 Telegram WebApp version:", window.Telegram?.WebApp?.version);
+                console.log("💻 Platform:", window.Telegram?.WebApp?.platform);
+
                 // Тестовый запрос к бэкенду
                 console.log("🧪 Starting test fetch to backend...");
                 try {
@@ -156,7 +160,7 @@ function App() {
                     regions.addRegion({
                         id: 'selection',
                         start: startTime,
-                        endTime: endTime,
+                        end: endTime,
                         content: 'Выбранный фрагмент',
                         color: 'rgba(59, 130, 246, 0.3)',
                     });
