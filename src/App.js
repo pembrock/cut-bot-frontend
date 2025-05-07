@@ -285,7 +285,7 @@ function App() {
         const testData = { test: "ping", userId: initDataUnsafe?.user?.id || 'unknown' };
         console.log("📤 Sending test POST to /test:", testData);
         try {
-            const response = await fetch('https://bot.pembrock.ru/test', {
+            const response = await fetch('https://bot.pembrock.ru/api/test', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
