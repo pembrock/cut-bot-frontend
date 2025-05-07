@@ -226,21 +226,31 @@ function App() {
         return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
-    const handleCut = () => {
+    const handleCut = async () => {
         const data = {
-            startTime: formatTime(startTime),
-            endTime: formatTime(endTime),
+            user_id: initDataUnsafe?.user?.id || 'unknown',
+            start_time: formatTime(startTime),
+            end_time: formatTime(endTime),
         };
 
-        console.log("📤 Sending to Telegram:", data);
+        console.log("📤 Sending cut audio request to /api/save-segment:", data);
         try {
-            // Проверяем initData
-            if (!window.Telegram.WebApp.initData) {
-                throw new Error("initData is empty or invalid");
+            const response = await fetch('https://bot.pembrock.ru/api/save-segment', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data),
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error: ${response.status} ${response.statusText}`);
             }
 
-            window.Telegram.WebApp.sendData(JSON.stringify(data));
-            setSuccessMessage("✅ Данные отправлены в Telegram!");
+            const result = await response.json();
+            console.log("📡 Response from /api/save-segment:", result);
+
+            setSuccessMessage("✅ Аудио обработано!");
             setTimeout(() => {
                 window.Telegram.WebApp.close();
             }, 1000);
@@ -250,8 +260,9 @@ function App() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    event: 'sendData_telegram',
+                    event: 'cut_audio_post',
                     data,
+                    response: result,
                     userId: initDataUnsafe?.user?.id || 'unknown',
                     telegramVersion: window.Telegram?.WebApp?.version,
                     platform: window.Telegram?.WebApp?.platform,
@@ -260,15 +271,15 @@ function App() {
                 }),
             }).catch(err => console.error("⚠️ Vercel log error:", err));
         } catch (err) {
-            console.error("⚠️ Error sending to Telegram:", err);
-            setError("❌ Ошибка отправки данных: " + err.message);
+            console.error("⚠️ Error sending cut audio request:", err);
+            setError("❌ Ошибка обработки аудио: " + err.message);
 
             // Логируем ошибку на Vercel
             fetch('/api/log', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    event: 'sendData_telegram_error',
+                    event: 'cut_audio_post_error',
                     error: err.message,
                     data,
                     userId: initDataUnsafe?.user?.id || 'unknown',
@@ -283,7 +294,7 @@ function App() {
 
     const handleTest = async () => {
         const testData = { test: "ping", userId: initDataUnsafe?.user?.id || 'unknown' };
-        console.log("📤 Sending test POST to /test:", testData);
+        console.log("📤 Sending test POST to /api/test:", testData);
         try {
             const response = await fetch('https://bot.pembrock.ru/api/test', {
                 method: 'POST',
@@ -293,7 +304,7 @@ function App() {
                 body: JSON.stringify(testData),
             });
             const result = await response.json();
-            console.log("📡 Response from /test:", result);
+            console.log("📡 Response from /api/test:", result);
 
             setSuccessMessage("✅ Тестовый запрос отправлен!");
             setTimeout(() => {
