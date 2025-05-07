@@ -45,8 +45,11 @@ function App() {
 
                 // Получаем URL аудиофайла
                 const urlParams = new URLSearchParams(window.location.search);
-                const audioParam = urlParams.get('audio');
-                const audioUrlValue = audioParam || 'https://bot.pembrock.ru/audio/142413225';
+                const audioUrlValue = urlParams.get('audio');
+                if (!audioUrlValue) {
+                    setError("URL аудиофайла не указан.");
+                    return;
+                }
                 setAudioUrl(audioUrlValue);
                 console.log("🔊 Audio URL:", audioUrlValue);
 
@@ -201,65 +204,51 @@ function App() {
         return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
-    const handleCut = async () => {
+    const handleCut = () => {
         const data = {
-            user_id: initDataUnsafe?.user?.id || 142413225,
-            start_time: formatTime(startTime),
-            end_time: formatTime(endTime),
+            startTime: formatTime(startTime),
+            endTime: formatTime(endTime),
         };
 
-        console.log("📤 Sending to backend:", data);
-        const backendUrl = "https://bot.pembrock.ru/save-segment";
-
+        console.log("📤 Sending to Telegram:", data);
         try {
-            const response = await fetch(backendUrl, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(data),
-            });
-
-            const result = await response.json();
-            if (response.ok) {
-                setSuccessMessage("✅ Segment saved and processed!");
+            window.Telegram.WebApp.sendData(JSON.stringify(data));
+            setSuccessMessage("✅ Данные отправлены в Telegram!");
+            setTimeout(() => {
                 window.Telegram.WebApp.close();
-            } else {
-                throw new Error(result.detail || "Failed to send data");
-            }
+            }, 1000);
 
             // Логи на Vercel
-            await fetch('/api/log', {
+            fetch('/api/log', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    event: 'sendData_backend',
+                    event: 'sendData_telegram',
                     data,
-                    userId: data.user_id,
-                    backendUrl,
-                    response: result,
+                    userId: initDataUnsafe?.user?.id || 'unknown',
                     telegramVersion: window.Telegram?.WebApp?.version,
                     platform: window.Telegram?.WebApp?.platform,
                     timestamp: new Date().toISOString(),
                 }),
-            });
+            }).catch(err => console.error("⚠️ Vercel log error:", err));
         } catch (err) {
-            console.error("⚠️ Error sending to backend:", err);
-            setError("❌ Failed to send data: " + err.message);
+            console.error("⚠️ Error sending to Telegram:", err);
+            setError("❌ Ошибка отправки данных: " + err.message);
 
             // Логируем ошибку на Vercel
-            await fetch('/api/log', {
+            fetch('/api/log', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    event: 'sendData_backend_error',
+                    event: 'sendData_telegram_error',
                     error: err.message,
                     data,
-                    userId: data.user_id,
-                    backendUrl,
+                    userId: initDataUnsafe?.user?.id || 'unknown',
                     telegramVersion: window.Telegram?.WebApp?.version,
                     platform: window.Telegram?.WebApp?.platform,
                     timestamp: new Date().toISOString(),
                 }),
-            });
+            }).catch(err => console.error("⚠️ Vercel log error:", err));
         }
     };
 
