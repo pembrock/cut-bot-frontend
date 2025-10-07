@@ -3,6 +3,64 @@ import WaveSurfer from 'wavesurfer.js';
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js';
 import './App.css';
 
+const MIN_REGION_LENGTH = 1;
+const MAX_REGION_LENGTH = 30;
+const SELECTION_REGION_ID = 'selection';
+
+const formatTime = (seconds) => {
+    const totalSeconds = Math.max(0, seconds || 0);
+    let minutes = Math.floor(totalSeconds / 60);
+    let secondsFraction = totalSeconds - minutes * 60;
+    let secondsRounded = Math.round(secondsFraction * 100) / 100;
+
+    if (secondsRounded >= 60) {
+        minutes += 1;
+        secondsRounded -= 60;
+    }
+
+    const hasFraction = Math.abs(secondsRounded - Math.round(secondsRounded)) > 0.01;
+    const secondsString = hasFraction
+        ? secondsRounded.toFixed(2).padStart(5, '0')
+        : Math.round(secondsRounded).toString().padStart(2, '0');
+
+    return `${minutes.toString().padStart(2, '0')}:${secondsString}`;
+};
+
+const parseTimeInput = (value) => {
+    if (typeof value === 'number') {
+        return Number.isNaN(value) ? null : value;
+    }
+
+    if (typeof value !== 'string') {
+        return null;
+    }
+
+    const trimmedValue = value.trim();
+    if (!trimmedValue) {
+        return null;
+    }
+
+    const normalized = trimmedValue.replace(',', '.');
+    const parts = normalized.split(':');
+
+    if (parts.length === 1) {
+        const seconds = Number(parts[0]);
+        return Number.isNaN(seconds) ? null : Math.max(0, seconds);
+    }
+
+    if (parts.length === 2) {
+        const minutes = Number(parts[0]);
+        const seconds = Number(parts[1]);
+        if (Number.isNaN(minutes) || Number.isNaN(seconds)) {
+            return null;
+        }
+
+        return Math.max(0, minutes * 60 + seconds);
+    }
+
+    return null;
+};
+
 function App() {
     const [startTime, setStartTime] = useState(0);
     const [endTime, setEndTime] = useState(2);
@@ -13,6 +71,14 @@ function App() {
     const waveSurferRef = useRef(null);
     const waveformRef = useRef(null);
     const [audioUrl, setAudioUrl] = useState('');
+    const [startInput, setStartInput] = useState(formatTime(0));
+    const [endInput, setEndInput] = useState(formatTime(2));
+    const [inputError, setInputError] = useState(null);
+    const [isWaveReady, setIsWaveReady] = useState(false);
+    const regionRef = useRef(null);
+    const regionsPluginRef = useRef(null);
+    const startTimeRef = useRef(startTime);
+    const endTimeRef = useRef(endTime);
 
     useEffect(() => {
         if (!waveformRef.current) {
@@ -108,9 +174,10 @@ function App() {
                 const regions = RegionsPlugin.create({
                     drag: true,
                     resize: true,
-                    minLength: 1,
-                    maxLength: 30
+                    minLength: MIN_REGION_LENGTH,
+                    maxLength: MAX_REGION_LENGTH,
                 });
+                regionsPluginRef.current = regions;
 
                 // Инициализируем WaveSurfer
                 waveSurferRef.current = WaveSurfer.create({
@@ -144,6 +211,9 @@ function App() {
 
                 waveSurferRef.current.on('ready', () => {
                     console.log('✅ WaveSurfer ready');
+                    if (isMounted) {
+                        setIsWaveReady(true);
+                    }
                 });
 
                 waveSurferRef.current.on('decode', () => {
@@ -157,42 +227,88 @@ function App() {
                 // Добавляем регион
                 waveSurferRef.current.on('decode', () => {
                     console.log('🔊 Region added');
-                    regions.addRegion({
-                        id: 'selection',
-                        start: startTime,
-                        end: endTime,
-                        content: 'Выбранный фрагмент',
-                        color: 'rgba(59, 130, 246, 0.3)',
-                    });
+                    if (!regionRef.current) {
+                        regionRef.current = regions.addRegion({
+                            id: SELECTION_REGION_ID,
+                            start: startTimeRef.current,
+                            end: endTimeRef.current,
+                            content: 'Выбранный фрагмент',
+                            color: 'rgba(59, 130, 246, 0.3)',
+                        });
+                    }
                 });
 
                 // Обновляем временные метки
+                regions.on('region-created', (region) => {
+                    if (region.id === SELECTION_REGION_ID) {
+                        regionRef.current = region;
+                    }
+                });
+
                 regions.on('region-updated', (region) => {
-                    if (!isMounted || region.id !== 'selection') return;
+                    if (!isMounted || region.id !== SELECTION_REGION_ID) return;
 
-                    let newStart = region.start;
-                    let newEnd = region.end;
+                    const audioDuration = waveSurferRef.current?.getDuration() || 0;
+                    const durationLimit = audioDuration || 0;
+                    let newStart = Math.max(0, region.start);
+                    let newEnd = Math.max(0, region.end);
 
-                    if (newStart >= newEnd) {
-                        newEnd = newStart + 0.1;
-                        region.end = newEnd;
+                    if (durationLimit) {
+                        newStart = Math.min(newStart, durationLimit);
+                        newEnd = Math.min(newEnd, durationLimit);
                     }
 
-                    const audioDuration = waveSurferRef.current.getDuration() || 100;
-                    if (newEnd > audioDuration) {
-                        newEnd = audioDuration;
-                        newStart = Math.max(0, newEnd - (region.end - region.start));
-                        region.start = newStart;
-                        region.end = newEnd;
+                    if (durationLimit && durationLimit < MIN_REGION_LENGTH) {
+                        newStart = 0;
+                        newEnd = durationLimit;
                     }
 
+                    if (newEnd <= newStart) {
+                        newEnd = newStart + MIN_REGION_LENGTH;
+                    }
+
+                    if (durationLimit && newEnd > durationLimit) {
+                        newEnd = durationLimit;
+                        newStart = Math.max(0, newEnd - MIN_REGION_LENGTH);
+                    }
+
+                    if (newEnd - newStart < MIN_REGION_LENGTH) {
+                        newEnd = newStart + MIN_REGION_LENGTH;
+                        if (durationLimit && newEnd > durationLimit) {
+                            newEnd = durationLimit;
+                            newStart = Math.max(0, newEnd - MIN_REGION_LENGTH);
+                        }
+                    }
+
+                    if (newEnd - newStart > MAX_REGION_LENGTH) {
+                        newEnd = newStart + MAX_REGION_LENGTH;
+                        if (durationLimit && newEnd > durationLimit) {
+                            newEnd = durationLimit;
+                            newStart = Math.max(0, newEnd - MAX_REGION_LENGTH);
+                        }
+                    }
+
+                    const hasChanged = Math.abs(newStart - region.start) > 0.01 || Math.abs(newEnd - region.end) > 0.01;
+
+                    if (hasChanged) {
+                        region.update({ start: newStart, end: newEnd });
+                        return;
+                    }
+
+                    regionRef.current = region;
+                    setInputError(null);
                     setStartTime(newStart);
                     setEndTime(newEnd);
                 });
 
                 regions.on('region-clicked', (region, e) => {
                     e.stopPropagation();
-                    region.play(true);
+                    if (region.id === SELECTION_REGION_ID) {
+                        setInputError(null);
+                        setStartTime(region.start);
+                        setEndTime(region.end);
+                        region.play(true);
+                    }
                 });
 
             } catch (err) {
@@ -207,6 +323,8 @@ function App() {
 
         return () => {
             isMounted = false;
+            regionRef.current = null;
+            regionsPluginRef.current = null;
             if (waveSurferRef.current) {
                 const ws = waveSurferRef.current;
                 waveSurferRef.current = null;
@@ -220,10 +338,108 @@ function App() {
         };
     }, []);
 
-    const formatTime = (seconds) => {
-        const minutes = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    useEffect(() => {
+        startTimeRef.current = startTime;
+    }, [startTime]);
+
+    useEffect(() => {
+        endTimeRef.current = endTime;
+    }, [endTime]);
+
+    useEffect(() => {
+        setStartInput(formatTime(startTime));
+        setEndInput(formatTime(endTime));
+    }, [startTime, endTime]);
+
+    const applyManualTimes = (startValue, endValue) => {
+        const parsedStart = parseTimeInput(startValue);
+        const parsedEnd = parseTimeInput(endValue);
+
+        if (parsedStart === null || parsedEnd === null) {
+            setInputError('Используйте формат ММ:СС или введите количество секунд.');
+            return;
+        }
+
+        if (parsedStart < 0 || parsedEnd < 0) {
+            setInputError('Время не может быть отрицательным.');
+            return;
+        }
+
+        if (parsedEnd <= parsedStart) {
+            setInputError('Время окончания должно быть больше времени начала.');
+            return;
+        }
+
+        const segmentLength = parsedEnd - parsedStart;
+        if (segmentLength < MIN_REGION_LENGTH) {
+            setInputError(`Минимальная длительность отрезка — ${MIN_REGION_LENGTH} с.`);
+            return;
+        }
+
+        if (segmentLength > MAX_REGION_LENGTH) {
+            setInputError(`Максимальная длительность отрезка — ${MAX_REGION_LENGTH} с.`);
+            return;
+        }
+
+        const duration = waveSurferRef.current?.getDuration() || 0;
+        if (duration) {
+            if (parsedStart >= duration) {
+                setInputError('Время начала не может превышать длительность аудио.');
+                return;
+            }
+            if (parsedEnd > duration) {
+                setInputError('Время окончания не может превышать длительность аудио.');
+                return;
+            }
+        }
+
+        setInputError(null);
+        setStartTime(parsedStart);
+        setEndTime(parsedEnd);
+
+        if (regionsPluginRef.current && isWaveReady) {
+            if (!regionRef.current) {
+                regionRef.current = regionsPluginRef.current.addRegion({
+                    id: SELECTION_REGION_ID,
+                    start: parsedStart,
+                    end: parsedEnd,
+                    content: 'Выбранный фрагмент',
+                    color: 'rgba(59, 130, 246, 0.3)',
+                });
+            } else {
+                regionRef.current.update({ start: parsedStart, end: parsedEnd });
+            }
+        }
+    };
+
+    const handleStartInputChange = (event) => {
+        setStartInput(event.target.value);
+    };
+
+    const handleEndInputChange = (event) => {
+        setEndInput(event.target.value);
+    };
+
+    const handleStartInputBlur = (event) => {
+        applyManualTimes(event.target.value, endInput);
+    };
+
+    const handleEndInputBlur = (event) => {
+        applyManualTimes(startInput, event.target.value);
+    };
+
+    const handleStartInputKeyDown = (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            applyManualTimes(event.currentTarget.value, endInput);
+        }
+    };
+
+    const handleEndInputKeyDown = (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            applyManualTimes(startInput, event.currentTarget.value);
+        }
     };
 
     const handleCut = async () => {
@@ -364,6 +580,43 @@ function App() {
             <div className="mb-4 text-center">
                 <p>Начало: <strong>{formatTime(startTime)}</strong></p>
                 <p>Конец: <strong>{formatTime(endTime)}</strong></p>
+            </div>
+            <div className="mb-4 bg-white p-4 rounded shadow">
+                <h2 className="text-lg font-semibold mb-3">Ручная регулировка</h2>
+                <p className="text-sm text-gray-500 mb-3">
+                    Введите значения в формате <strong>мм:сс</strong> или количество секунд. Выбранный участок будет автоматически отмечен на шкале.
+                </p>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <label className="flex flex-col text-left text-sm font-medium text-gray-700">
+                        Начало
+                        <input
+                            type="text"
+                            value={startInput}
+                            onChange={handleStartInputChange}
+                            onBlur={handleStartInputBlur}
+                            onKeyDown={handleStartInputKeyDown}
+                            placeholder="00:00"
+                            autoComplete="off"
+                            className="mt-1 rounded border border-gray-300 px-3 py-2 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        />
+                    </label>
+                    <label className="flex flex-col text-left text-sm font-medium text-gray-700">
+                        Конец
+                        <input
+                            type="text"
+                            value={endInput}
+                            onChange={handleEndInputChange}
+                            onBlur={handleEndInputBlur}
+                            onKeyDown={handleEndInputKeyDown}
+                            placeholder="00:30"
+                            autoComplete="off"
+                            className="mt-1 rounded border border-gray-300 px-3 py-2 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        />
+                    </label>
+                </div>
+                {inputError && (
+                    <p className="mt-3 text-sm text-red-500">{inputError}</p>
+                )}
             </div>
             {successMessage && (
                 <p className="text-green-500 mb-4">{successMessage}</p>
